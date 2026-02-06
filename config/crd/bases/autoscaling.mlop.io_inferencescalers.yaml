@@ -83,6 +83,49 @@ spec:
                         type: integer
                     type: object
                 type: object
+              decision:
+                properties:
+                  llm:
+                    description: LLM configuration (used when mode=LLM).
+                    properties:
+                      endpoint:
+                        description: |-
+                          HTTP endpoint of the decision agent service running in-cluster.
+                          Example: http://promscale-agent.promscale-system.svc.cluster.local:8081/decide
+                        minLength: 1
+                        type: string
+                      minConfidence:
+                        description: |-
+                          Optional minimum confidence as a string to avoid float CRDs.
+                          Example: "0.55"
+                        pattern: ^[0-9]+(\.[0-9]+)?$
+                        type: string
+                      onError:
+                        default: FallbackToDeterministic
+                        description: |-
+                          Fallback behavior when agent call fails or returns invalid output.
+                          FallbackToDeterministic | Hold | Error
+                        enum:
+                        - FallbackToDeterministic
+                        - Hold
+                        - Error
+                        type: string
+                      timeoutSeconds:
+                        default: 3
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    required:
+                    - endpoint
+                    type: object
+                  mode:
+                    default: Deterministic
+                    description: Deterministic | LLM
+                    enum:
+                    - Deterministic
+                    - LLM
+                    type: string
+                type: object
               maxReplicas:
                 format: int32
                 minimum: 1
@@ -291,6 +334,33 @@ spec:
                   by PromScale.
                 format: int32
                 type: integer
+              lastDecision:
+                description: LastDecision stores details about the most recent decision.
+                properties:
+                  agentError:
+                    description: AgentError holds the last agent error (timeout, invalid
+                      JSON, etc.)
+                    type: string
+                  confidence:
+                    description: Confidence returned by the agent as a string (e.g.,
+                      "0.72")
+                    type: string
+                  mode:
+                    description: 'Mode used for the last decision: Deterministic |
+                      LLM'
+                    type: string
+                  reason:
+                    description: Reason is a human-friendly explanation (especially
+                      from the agent).
+                    type: string
+                  source:
+                    description: 'Source: "signals" or "agent"'
+                    type: string
+                  time:
+                    description: Time when the decision was made.
+                    format: date-time
+                    type: string
+                type: object
               lastPollTime:
                 description: LastPollTime is when the scaler last evaluated metrics
                   and policy.

@@ -39,8 +39,8 @@ type InferenceScalerSpec struct {
 
 	Prometheus PrometheusSpec `json:"prometheus"`
 
-	Signals []ScalingSignal `json:"signals"`
-
+	Signals    []ScalingSignal  `json:"signals"`
+	Decision   *DecisionSpec    `json:"decision,omitempty"`
 	Behavior   *ScalingBehavior `json:"behavior,omitempty"`
 	Safeguards *SafeguardsSpec  `json:"safeguards,omitempty"`
 }
@@ -151,6 +151,38 @@ type ThresholdAction struct {
 	ScaleDownBy *int32 `json:"scaleDownBy,omitempty"`
 }
 
+type DecisionSpec struct {
+	// Deterministic | LLM
+	// +kubebuilder:validation:Enum=Deterministic;LLM
+	// +kubebuilder:default=Deterministic
+	Mode string `json:"mode,omitempty"`
+
+	// LLM configuration (used when mode=LLM).
+	LLM *LLMSpec `json:"llm,omitempty"`
+}
+
+type LLMSpec struct {
+	// HTTP endpoint of the decision agent service running in-cluster.
+	// Example: http://promscale-agent.promscale-system.svc.cluster.local:8081/decide
+	// +kubebuilder:validation:MinLength=1
+	Endpoint string `json:"endpoint"`
+
+	// +kubebuilder:default=3
+	// +kubebuilder:validation:Minimum=1
+	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
+
+	// Fallback behavior when agent call fails or returns invalid output.
+	// FallbackToDeterministic | Hold | Error
+	// +kubebuilder:validation:Enum=FallbackToDeterministic;Hold;Error
+	// +kubebuilder:default=FallbackToDeterministic
+	OnError string `json:"onError,omitempty"`
+
+	// Optional minimum confidence as a string to avoid float CRDs.
+	// Example: "0.55"
+	// +kubebuilder:validation:Pattern=`^[0-9]+(\.[0-9]+)?$`
+	MinConfidence string `json:"minConfidence,omitempty"`
+}
+
 // InferenceScalerStatus defines the observed state of InferenceScaler.
 type InferenceScalerStatus struct {
 	// ObservedGeneration is the last generation of the spec that was processed.
@@ -181,6 +213,9 @@ type InferenceScalerStatus struct {
 	// Conditions represent the current state of the scaler using standard
 	// Kubernetes condition semantics.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// LastDecision stores details about the most recent decision.
+	LastDecision *DecisionStatus `json:"lastDecision,omitempty"`
 }
 
 // ObservedSignal captures the last observed value of a scaling signal.
@@ -194,6 +229,27 @@ type ObservedSignal struct {
 type ReplicaRecommendation struct {
 	Timestamp       metav1.Time `json:"timestamp"`
 	DesiredReplicas int32       `json:"desiredReplicas"`
+}
+
+// DecisionStatus captures the last decision details (useful for LLM mode).
+type DecisionStatus struct {
+	// Mode used for the last decision: Deterministic | LLM
+	Mode string `json:"mode,omitempty"`
+
+	// Source: "signals" or "agent"
+	Source string `json:"source,omitempty"`
+
+	// Reason is a human-friendly explanation (especially from the agent).
+	Reason string `json:"reason,omitempty"`
+
+	// Confidence returned by the agent as a string (e.g., "0.72")
+	Confidence string `json:"confidence,omitempty"`
+
+	// AgentError holds the last agent error (timeout, invalid JSON, etc.)
+	AgentError string `json:"agentError,omitempty"`
+
+	// Time when the decision was made.
+	Time *metav1.Time `json:"time,omitempty"`
 }
 
 // +kubebuilder:object:root=true
