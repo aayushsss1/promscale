@@ -23,7 +23,7 @@ type signalEvalResult struct {
 func evaluateSignals(ctx context.Context, now time.Time, spec autoscalingv1alpha1.InferenceScalerSpec, current int32) signalEvalResult {
 
 	res := signalEvalResult{
-		rawDesired: current,
+		rawDesired: 0,
 		observed:   make([]autoscalingv1alpha1.ObservedSignal, 0, len(spec.Signals)),
 		metricsOK:  true,
 	}
@@ -35,6 +35,9 @@ func evaluateSignals(ctx context.Context, now time.Time, spec autoscalingv1alpha
 
 	// Track additive effect of threshold signals separately.
 	thresholdDelta := int32(0)
+
+	// check if per replica signal is present
+	hadPerReplica := false
 
 	for _, sig := range spec.Signals {
 		val, err := queryPrometheusScalar(ctx, spec.Prometheus.URL, sig.Query, timeout)
@@ -59,7 +62,7 @@ func evaluateSignals(ctx context.Context, now time.Time, spec autoscalingv1alpha
 				res.metricsErrHint = "invalid perReplica strategy"
 				continue
 			}
-
+			hadPerReplica = true
 			target, err := strconv.ParseFloat(sig.Strategy.PerReplica.Target, 64)
 			if err != nil || target <= 0 {
 				res.metricsOK = false
@@ -69,12 +72,10 @@ func evaluateSignals(ctx context.Context, now time.Time, spec autoscalingv1alpha
 
 			// desired = ceil(metric / target)
 			rec := int32(math.Ceil(val / target))
-			if rec < 0 {
-				rec = 0
+			if rec < 1 {
+				rec = 1
 			}
-			if rec > res.rawDesired {
-				res.rawDesired = rec
-			}
+			res.rawDesired = max(rec, res.rawDesired)
 
 		case "Threshold":
 			if sig.Strategy.Threshold == nil {
@@ -138,7 +139,14 @@ func evaluateSignals(ctx context.Context, now time.Time, spec autoscalingv1alpha
 
 	// Apply threshold delta after evaluating all signals
 	// This keeps PerReplica max behavior intact while allowing Threshold nudges
-	raw := res.rawDesired + thresholdDelta
+
+	base := res.rawDesired
+
+	if !hadPerReplica {
+		base = current
+	}
+
+	raw := base + thresholdDelta
 	if raw < 0 {
 		raw = 0
 	}

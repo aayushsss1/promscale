@@ -1,0 +1,42 @@
+apiVersion: autoscaling.mlop.io/v1alpha1
+kind: InferenceScaler
+metadata:
+  name: mock-apis-scaler
+  namespace: default
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mock-apis-deployment
+    namespace: default
+
+  minReplicas: 1
+  maxReplicas: 10
+
+  prometheus:
+    url: http://prom-prometheus-server.monitoring.svc.cluster.local
+    timeoutSeconds: 5
+
+  signals:
+    - name: queue-depth
+      query: sum(mock_queue_depth)
+      strategy:
+        type: PerReplica
+        perReplica:
+          target: "5"
+
+  behavior:
+    pollIntervalSeconds: 15
+    scaleUp:
+      maxStep: 3
+      cooldownSeconds: 10
+    scaleDown:
+      maxStep: 1
+      cooldownSeconds: 30
+      stabilizationWindowSeconds: 120
+
+  safeguards:
+    missingMetricsPolicy: Hold
+    readiness:
+      enabled: true
+      minReadySecondsAfterScaleUp: 60
