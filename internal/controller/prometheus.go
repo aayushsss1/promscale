@@ -110,3 +110,10 @@ func queryPrometheusScalar(ctx context.Context, baseURL, promQL string, timeout 
 	}
 	return f, nil
 }
+
+func isPrometheusReady(ctx context.Context, baseURL string, timeout time.Duration) (bool, string) {
+	if err := pingPrometheus(ctx, baseURL, timeout); err != nil {
+		return false, err.Error()
+	}
+	return true, "prometheus is ready"
+}
