@@ -25,3 +25,10 @@ go.work
 *.swp
 *.swo
 *~
+
+#env files for the python app
+.env
+.env.*
+env
+*/env
+**/env

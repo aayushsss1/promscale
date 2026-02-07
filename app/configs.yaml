@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-apis-deployment
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-apis
+  template:
+    metadata:
+      labels:
+        app: mock-apis
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: mock-apis
+          image: mock-apis:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-apis-service
+  namespace: default
+spec:
+  selector:
+      app: mock-apis
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
