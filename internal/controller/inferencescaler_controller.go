@@ -160,10 +160,72 @@ func (r *InferenceScalerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	setCondition(&scaler.Status.Conditions, now, "SignalsEvaluated", condStatus(eval.metricsOK), boolReason(eval.metricsOK, "signals_ok", "signals_error"), eval.metricsErrHint)
 
 	rawDesired := eval.rawDesired
+
+	// populate last decision baseline
+	scaler.Status.LastDecision = &autoscalingv1alpha1.DecisionStatus{
+		Mode:   "Deterministic",
+		Source: "signals",
+		Reason: "computed from signals",
+		Time:   ptrToMetav1Time(now),
+	}
+
+	// If Decision is nil, default is deterministic
+	mode := "Deterministic"
+	if scaler.Spec.Decision != nil && scaler.Spec.Decision.Mode != "" {
+		mode = scaler.Spec.Decision.Mode
+	}
+
+	if mode == "LLM" && scaler.Spec.Decision != nil && scaler.Spec.Decision.LLM != nil {
+		desired, reason, confidence, err := callAgent(ctx, *scaler.Spec.Decision.LLM, &scaler, current, ready, eval.observed)
+		if err != nil {
+			// record failure in status
+			scaler.Status.LastDecision = &autoscalingv1alpha1.DecisionStatus{
+				Mode:       "LLM",
+				Source:     "agent",
+				Reason:     "agent call failed; applying fallback",
+				AgentError: err.Error(),
+				Time:       ptrToMetav1Time(now),
+			}
+
+			setCondition(&scaler.Status.Conditions, now, "LLMAvailable", metav1.ConditionFalse, "agent_error", err.Error())
+
+			onErr := "FallbackToDeterministic"
+			if scaler.Spec.Decision.LLM.OnError != "" {
+				onErr = scaler.Spec.Decision.LLM.OnError
+			}
+
+			switch onErr {
+			case "Hold":
+				rawDesired = current
+				scaler.Status.LastDecision.Source = "fallback"
+				scaler.Status.LastDecision.Reason = "LLM failed, replica scaling held."
+			case "Error":
+				_ = r.Status().Update(ctx, &scaler)
+				return ctrl.Result{RequeueAfter: interval}, err
+			default: // FallbackToDeterministic
+				rawDesired = eval.rawDesired
+				scaler.Status.LastDecision.Source = "fallback"
+				scaler.Status.LastDecision.Reason = "LLM failed falling back to deterministic approach using signals"
+			}
+		} else {
+			rawDesired = desired
+
+			scaler.Status.LastDecision = &autoscalingv1alpha1.DecisionStatus{
+				Mode:       "LLM",
+				Source:     "agent",
+				Reason:     reason,
+				Confidence: confidence,
+				Time:       ptrToMetav1Time(now),
+			}
+
+			setCondition(&scaler.Status.Conditions, now, "LLMAvailable", metav1.ConditionTrue, "agent_ok", "LLM agent responded")
+		}
+	}
+
 	scaler.Status.DesiredReplicas = rawDesired
 	appendRecommendationBounded(&scaler.Status, now, rawDesired, 40)
 
-	// Apply behavior rails
+	// Apply behavior rails for both LLM and Deterministic approach
 	decision := applyBehavior(now, current, rawDesired, scaler.Spec, scaler.Status)
 	scaler.Status.DesiredReplicas = decision.finalDesired
 
@@ -211,7 +273,7 @@ func (r *InferenceScalerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// helper funcs to keep reconcile readable
+// basic helper functions
 func boolReason(ok bool, t, f string) string {
 	if ok {
 		return t
