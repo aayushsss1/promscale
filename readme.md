@@ -1,1 +1,1 @@
-# PromScale - A Simple Policy-Driven Autoscaling Operator for Kubernetes
+# PromScale - An LLM-based Policy-Driven Autoscaling Operator for Kubernetes
