@@ -25,13 +25,6 @@ func getMinMax(spec autoscalingv1alpha1.InferenceScalerSpec) (int32, int32) {
 	return minR, maxR
 }
 
-func pollIntervalSeconds(spec autoscalingv1alpha1.InferenceScalerSpec) int32 {
-	if spec.Behavior != nil && spec.Behavior.PollIntervalSeconds != nil && *spec.Behavior.PollIntervalSeconds > 0 {
-		return *spec.Behavior.PollIntervalSeconds
-	}
-	return 15
-}
-
 // Infer last scaling direction using last desired/current.
 func inferLastScaleWasUp(st autoscalingv1alpha1.InferenceScalerStatus) bool {
 	return st.DesiredReplicas > st.CurrentReplicas
