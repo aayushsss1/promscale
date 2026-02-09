@@ -41,9 +41,6 @@ func callAgent(ctx context.Context, llm autoscalingv1alpha1.LLMSpec, scaler *aut
 	// build URL
 	endpoint := strings.TrimRight(llm.Endpoint, "/")
 	url := endpoint
-	if !strings.HasSuffix(endpoint, "/decide") {
-		url = endpoint + "/decide"
-	}
 
 	// min/max
 	minR := int32(1)
@@ -84,7 +81,8 @@ func callAgent(ctx context.Context, llm autoscalingv1alpha1.LLMSpec, scaler *aut
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, "", "", err
 	}
