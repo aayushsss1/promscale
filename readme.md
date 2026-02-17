@@ -42,8 +42,8 @@ PromScale extends Kubernetes' native autoscaling capabilities by:
 
 PromScale consists of three main components:
 
-1. **Controller** (Go): The Kubernetes operator that reconciles `InferenceScaler` resources
-2. **LLM Agent** (Python): Optional FastAPI service that provides AI-powered scaling decisions
+1. **Controller** : The Kubernetes operator that reconciles `InferenceScaler` resources
+2. **LLM Agent** : Optional FastAPI service that provides AI-powered scaling decisions
 3. **Target Workload**: The workload being scaled (currently `apps/v1` Deployment). Support for other workload types (e.g. StatefulSet, custom resources) can be added by extending the operator—implementing target resolution and replica patching for the desired API in the controller code.
 
 ## Installation
