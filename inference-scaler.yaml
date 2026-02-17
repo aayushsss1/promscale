@@ -25,6 +25,14 @@ spec:
         perReplica:
           target: "5"
 
+  decision:
+    mode: LLM
+    llm:
+      endpoint: http://promscale-agent.default.svc.cluster.local:8081/decide
+      timeoutSeconds: 3
+      onError: FallbackToDeterministic
+      minConfidence: "0.1"
+
   behavior:
     pollIntervalSeconds: 15
     scaleUp:
@@ -32,11 +40,11 @@ spec:
       cooldownSeconds: 10
     scaleDown:
       maxStep: 1
-      cooldownSeconds: 30
-      stabilizationWindowSeconds: 120
+      cooldownSeconds: 10
+      stabilizationWindowSeconds: 60
 
   safeguards:
     missingMetricsPolicy: Hold
     readiness:
       enabled: true
-      minReadySecondsAfterScaleUp: 60
+      minReadySecondsAfterScaleUp: 30

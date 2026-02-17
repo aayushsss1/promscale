@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: promscale
-  newTag: v2
+  newTag: v3

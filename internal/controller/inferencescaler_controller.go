@@ -64,6 +64,7 @@ func (r *InferenceScalerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Validate target is Deployment
 	if scaler.Spec.TargetRef.APIVersion != "apps/v1" || scaler.Spec.TargetRef.Kind != "Deployment" {
+		log.Info("unsupported target, only apps/v1 Deployment supported", "targetRef", scaler.Spec.TargetRef)
 		scaler.Status.ObservedGeneration = scaler.Generation
 		scaler.Status.LastPollTime = ptrToMetav1Time(now)
 
@@ -76,6 +77,7 @@ func (r *InferenceScalerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// Fetch target deployment
 	dep, err := getTargetDeployment(ctx, r.Client, &scaler)
 	if err != nil {
+		log.Info("target deployment not found", "targetRef", scaler.Spec.TargetRef, "error", err)
 		scaler.Status.ObservedGeneration = scaler.Generation
 		scaler.Status.LastPollTime = ptrToMetav1Time(now)
 		setCondition(&scaler.Status.Conditions, now, "ScalingActive", metav1.ConditionFalse,
@@ -116,13 +118,14 @@ func (r *InferenceScalerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				minR = *scaler.Spec.MinReplicas
 			}
 			desired := minR
+			log.Info("Prometheus unavailable, scaling to minReplicas", "scaler", req.NamespacedName, "minReplicas", desired)
 
 			scaler.Status.DesiredReplicas = desired
 			appendRecommendationBounded(&scaler.Status, now, desired, 40)
 
 			if desired != current {
 				if err := patchDeploymentReplicas(ctx, r.Client, dep, desired); err != nil {
-					log.Error(err, "failed to scale Deployment to minReplicas")
+					log.Error(err, "failed to scale deployment to minReplicas")
 					setCondition(&scaler.Status.Conditions, now, "ScalingActive", metav1.ConditionFalse,
 						"scale_failed", fmt.Sprintf("Failed to patch replicas: %v", err))
 					_ = r.Status().Update(ctx, &scaler)
@@ -138,12 +141,14 @@ func (r *InferenceScalerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			return ctrl.Result{RequeueAfter: interval}, nil
 
 		case "Error":
+			log.Error(fmt.Errorf("%s", promMsg), "Prometheus unavailable, MissingMetricsPolicy=Error", "scaler", req.NamespacedName)
 			setCondition(&scaler.Status.Conditions, now, "ScalingActive", metav1.ConditionFalse,
 				"metrics_unavailable", "Prometheus unavailable; MissingMetricsPolicy=Error")
 			_ = r.Status().Update(ctx, &scaler)
 			return ctrl.Result{RequeueAfter: interval}, fmt.Errorf("prometheus unavailable: %s", promMsg)
 
 		default:
+			log.Info("Prometheus unavailable, holding replicas", "scaler", req.NamespacedName)
 			scaler.Status.DesiredReplicas = current
 			appendRecommendationBounded(&scaler.Status, now, current, 40)
 			setCondition(&scaler.Status.Conditions, now, "ScalingActive", metav1.ConditionFalse,
@@ -178,7 +183,12 @@ func (r *InferenceScalerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if mode == "LLM" && scaler.Spec.Decision != nil && scaler.Spec.Decision.LLM != nil {
 		desired, reason, confidence, err := callAgent(ctx, *scaler.Spec.Decision.LLM, &scaler, current, ready, eval.observed)
 		if err != nil {
-			// record failure in status
+			onErr := "FallbackToDeterministic"
+			if scaler.Spec.Decision.LLM.OnError != "" {
+				onErr = scaler.Spec.Decision.LLM.OnError
+			}
+			log.Info("LLM agent failed, using fallback", "scaler", req.NamespacedName, "fallback", onErr, "error", err)
+
 			scaler.Status.LastDecision = &autoscalingv1alpha1.DecisionStatus{
 				Mode:       "LLM",
 				Source:     "agent",
@@ -188,11 +198,6 @@ func (r *InferenceScalerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			}
 
 			setCondition(&scaler.Status.Conditions, now, "LLMAvailable", metav1.ConditionFalse, "agent_error", err.Error())
-
-			onErr := "FallbackToDeterministic"
-			if scaler.Spec.Decision.LLM.OnError != "" {
-				onErr = scaler.Spec.Decision.LLM.OnError
-			}
 
 			switch onErr {
 			case "Hold":
@@ -234,6 +239,7 @@ func (r *InferenceScalerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		boolMsg(decision.scalingLimited, "Scaling output limited by bounds/rails", "Scaling output not limited"))
 
 	if decision.blocked {
+		log.Info("scaling blocked by behavior", "scaler", req.NamespacedName, "reason", decision.blockReason)
 		setCondition(&scaler.Status.Conditions, now, "ScalingActive", metav1.ConditionFalse,
 			decision.blockReason, "Scaling blocked by behavior safeguards")
 		_ = r.Status().Update(ctx, &scaler)
@@ -248,6 +254,7 @@ func (r *InferenceScalerReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			_ = r.Status().Update(ctx, &scaler)
 			return ctrl.Result{}, err
 		}
+		log.Info("scaled deployment", "scaler", req.NamespacedName, "replicas", decision.finalDesired)
 		scaler.Status.LastScaleTime = ptrToMetav1Time(now)
 		setCondition(&scaler.Status.Conditions, now, "ScalingActive", metav1.ConditionTrue,
 			"scaled", fmt.Sprintf("Scaled Deployment to %d", decision.finalDesired))
