@@ -38,7 +38,7 @@ PromScale extends Kubernetes' native autoscaling capabilities by:
 
 ## Architecture
 
-<!-- Architecture diagram will be added here -->
+![PromScale architecture](architecture.jpg)
 
 PromScale consists of three main components:
 
